@@ -1,0 +1,4 @@
+../Core/Src/quaternion.c:5:6:quaternionInit	1
+../Core/Src/quaternion.c:20:6:quaternionUpdate	2
+../Core/Src/quaternion.c:94:6:quaternionEulerUpdate	1
+../Core/Src/quaternion.c:106:6:quaternionEulerUpdateHeading	2
