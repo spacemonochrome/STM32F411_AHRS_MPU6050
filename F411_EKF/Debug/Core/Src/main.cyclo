@@ -1,7 +1,0 @@
-../Core/Src/main.c:65:10:Timer_GetElapsed	2
-../Core/Src/main.c:80:5:main	1
-../Core/Src/main.c:128:6:SystemClock_Config	3
-../Core/Src/main.c:174:13:MX_I2C2_Init	2
-../Core/Src/main.c:208:13:MX_TIM9_Init	3
-../Core/Src/main.c:246:13:MX_GPIO_Init	1
-../Core/Src/main.c:270:6:Error_Handler	1
