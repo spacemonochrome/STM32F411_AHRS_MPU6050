@@ -56,16 +56,16 @@ uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, MPU6050_t*DataStruct){
 
 		//Calibrate gyro and accelerometers, load biases in bias registers
 		calibrateMPU6050(I2Cx, DataStruct, gyroBias_MPU6050, accelBias_MPU6050);
-		HAL_Delay(1000);
+		HAL_Delay(10);
 
 		//init Gyro and Accelerometer
 		initMPU6050(I2Cx);
-		HAL_Delay(1000);
+		HAL_Delay(10);
 
 		getMPU6050Ares();
 		getMPU6050Gres();
 
-		HAL_Delay(100);
+		HAL_Delay(10);
 
 		return 0;
 	}
@@ -148,29 +148,29 @@ void initMPU6050(I2C_HandleTypeDef *I2Cx){
 	//Wake up device
 	writeData = 0x00;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, PWR_MGMT_1, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	writeData = 0x01;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, PWR_MGMT_1, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	writeData = 0x03;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, CONFIG, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	writeData = 0; //0x07; 0x04
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, SMPLRT_DIV, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDRESS, GYRO_CONFIG, 1, &readData, 1, i2c_timeout);
 	readData = readData & ~0x03; // Clear Fchoice bits [1:0]
 	readData = readData & ~0x18; // Clear GFS bits [4:3]
 	readData = readData | Gscale_MPU6050 << 3; // Set full scale range for the gyro
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	writeData = readData;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, GYRO_CONFIG, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDRESS, ACCEL_CONFIG, 1, &readData, 1, i2c_timeout);
 	readData = readData & ~0x18;  // Clear AFS bits [4:3]
@@ -178,7 +178,7 @@ void initMPU6050(I2C_HandleTypeDef *I2Cx){
 
 	writeData = readData;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, ACCEL_CONFIG, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 	//**
 	HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDRESS, ACCEL_CONFIG2, 1, &readData, 1, i2c_timeout);
 	readData = readData & ~0x0F; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0])
@@ -186,7 +186,7 @@ void initMPU6050(I2C_HandleTypeDef *I2Cx){
 
 	writeData = readData;
 	HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDRESS, ACCEL_CONFIG2, 1, &writeData, 1, i2c_timeout);
-	HAL_Delay(100);
+	HAL_Delay(10);
 }
 
 //read raw Accelerometer values from registers
@@ -423,6 +423,7 @@ void MPU6050SelfTest(I2C_HandleTypeDef *I2Cx, float * destination) {
 		gAvg[0] += (int16_t)(((int16_t)rawTestData[0] << 8) | rawTestData[1]) ;  // Turn the MSB and LSB into a signed 16-bit value
 		gAvg[1] += (int16_t)(((int16_t)rawTestData[2] << 8) | rawTestData[3]) ;
 		gAvg[2] += (int16_t)(((int16_t)rawTestData[4] << 8) | rawTestData[5]) ;
+		HAL_Delay(0);
 	}
 
 	//Get average of 200 values and store as average current readings

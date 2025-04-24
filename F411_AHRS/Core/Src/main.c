@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -38,9 +39,6 @@
 MPU6050_t imu_t;
 
 Quaternion_t quaternion_t;
-FusionBias fusionBiasIMU1;
-FusionAhrs fusionAhrsIMU1;
-FusionAHRS_t AHRS_IMU1;
 
 NotchFilter_t NF_gyro_x, NF_gyro_y, NF_gyro_z;
 LPFTwoPole_t LPF_accel_x, LPF_accel_y, LPF_accel_z, LPF_gyro_x, LPF_gyro_y, LPF_gyro_z;
@@ -62,13 +60,19 @@ uint8_t indeks(uint8_t *dizi, char harf);
 void UartTxWriter();
 void UartRxDataUse();
 void MotorValueUpload(uint8_t indis, uint8_t PWM);
-uint16_t MotorValueDownload(uint8_t indis);
+int16_t MotorValueDownload(uint8_t indis);
 int8_t faz_indeks(uint8_t *dizi, uint8_t sira);
+
+void Komut_A();
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c2;
 I2C_HandleTypeDef hi2c3;
+
+SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -76,7 +80,6 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim11;
 
 UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart6;
 DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart1_tx;
 
@@ -95,7 +98,8 @@ static void MX_I2C3_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM11_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_USART6_UART_Init(void);
+static void MX_SPI2_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -111,36 +115,32 @@ char TxData[TXDATASIZE];
 #define CopyDATASIZE 17
 uint8_t CopyData[CopyDATASIZE];
 
-int _write(int file, char *ptr, int len)
-{
-	HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-	return len;
-}
-
 float sample_time_sec_f32 = 1.0f / SAMPLE_FREQ_HZ;
 float sample_time_us_f32 = (1.0f / SAMPLE_FREQ_HZ) * 1000000.0f;
-
 float accelLowPassFiltered_f32[3], gyroLowPassFiltered_f32[3], gyroNotchFiltered_f32[3];
-
 float eulerAngles_f32[3];
+
+double yaw_base = 0;
 
 uint64_t timer_u64 = 0;
 uint64_t lastTime_u64 = 0;
 uint32_t baslangic = 0;
 uint32_t bitis = 0;
 uint32_t bitis2 = 0;
-double Accel[3], Gyro[3], Mag[3], Temp;
-double AccelK[3], GyroK[3], MagK[3];
-double AccelBase[3], GyroBase[3], MagBase[3];
+
 double Yaw, Pitch, Roll;
-float depth;
+float depth, voltage;
 float dt;
 float pid_p, pid_i, pid_d;
+
+int16_t MotorPWM[8] = {1500};
+int16_t MotorValue[8] = {0};
 
 uint8_t onsol8,onsag8,arkasol8,arkasag8,onsolbatirma8,onsagbatirma8,arkasolbatirma8,arkasagbatirma8; // 8 motor
 uint8_t onsol6,onsag6,arkasol6,arkasag6,ortabatirmasol6,ortabatirmasag6; // 6 motor
 uint8_t hizcarpan;
-
+uint8_t huart_flag = 1;
+uint8_t Komut = 0;
 uint8_t konum[8] = {0};
 uint8_t a[8] = {0};
 uint8_t b[8] = {0};
@@ -157,8 +157,10 @@ bool otonomi = false;
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART6)
     {
+    	huart_flag = 0;
     	UartRxDataUse();
-    	HAL_UART_Receive_DMA(&huart1, RxData, RXDATASIZE);  // UART'ı resetle
+    	HAL_UART_Receive_DMA(&huart1, RxData, RXDATASIZE);
+    	huart_flag = 1;
     }
 }
 
@@ -201,11 +203,13 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM11_Init();
   MX_TIM4_Init();
-  MX_USART6_UART_Init();
+  MX_SPI2_Init();
+  MX_ADC1_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, SET);
   //Init DWT Clock for proper us time tick
-  DWT_Init();
+
 
   //Init filter with predefined settings
   LPFTwoPole_Init(&LPF_accel_x, LPF_TYPE_BESSEL, LPF_ACCEL_CTOFF_HZ, sample_time_sec_f32);
@@ -222,7 +226,6 @@ int main(void)
 
   //Init state estimators
   quaternionInit(&quaternion_t, sample_time_us_f32);
-  initFusionAHRS(&fusionBiasIMU1, &fusionAhrsIMU1, &AHRS_IMU1, sample_time_sec_f32);
 
   //Init sensors
 	while (MPU6050_Init(&hi2c2, &imu_t));
@@ -232,7 +235,7 @@ int main(void)
 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, RESET);
 	}
 	uint8_t newData_u8;
-
+	DWT_Init();
 	HAL_TIM_Base_Start(&htim11);
   /* USER CODE END 2 */
 
@@ -240,6 +243,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  __HAL_TIM_SET_COUNTER(&htim11, 0);
 	  baslangic = __HAL_TIM_GET_COUNTER(&htim11);
 
     /* USER CODE END WHILE */
@@ -273,12 +277,8 @@ int main(void)
 
 			//Get state estimations, using quaternion and fusion-quaternion based estimators
 			quaternionUpdate(&quaternion_t, accelLowPassFiltered_f32[0], accelLowPassFiltered_f32[1], accelLowPassFiltered_f32[2],
-					gyroNotchFiltered_f32[0]*(M_PI/180.0f), gyroNotchFiltered_f32[1]*(M_PI/180.0f),
-						gyroNotchFiltered_f32[2]*(M_PI/180.0f));
+					gyroNotchFiltered_f32[0]*(M_PI/180.0f), gyroNotchFiltered_f32[1]*(M_PI/180.0f),gyroNotchFiltered_f32[2]*(M_PI/180.0f));
 
-			getFusionAHRS_6DoF(&fusionBiasIMU1, &fusionAhrsIMU1, &AHRS_IMU1, accelLowPassFiltered_f32[0], accelLowPassFiltered_f32[1],
-					accelLowPassFiltered_f32[2], gyroNotchFiltered_f32[0]*(M_PI/180.0f), gyroNotchFiltered_f32[1]*(M_PI/180.0f),
-						gyroNotchFiltered_f32[2]*(M_PI/180.0f));
 
 			newData_u8 = TRUE; //Set newData to high for activate UART printer
 
@@ -288,12 +288,19 @@ int main(void)
 		{
 			printf("%f, %f, %f\r\n",
 					quaternion_t.yaw, quaternion_t.pitch, quaternion_t.roll);
-	//				AHRS_IMU1.YAW, AHRS_IMU1.PITCH, AHRS_IMU1.ROLL);
 			newData_u8 = FALSE;
 		}
 
+		if (huart_flag)
+		{
+			if (Komut == 'A')
+			{
+				Komut_A();
+			}
+		}
+
 		bitis = Timer_GetElapsed(&htim11, baslangic);
-		__HAL_TIM_SET_COUNTER(&htim11, 0);
+
 	  }
   /* USER CODE END 3 */
 }
@@ -341,6 +348,58 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -408,6 +467,44 @@ static void MX_I2C3_Init(void)
   /* USER CODE BEGIN I2C3_Init 2 */
 
   /* USER CODE END I2C3_Init 2 */
+
+}
+
+/**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
 
 }
 
@@ -642,7 +739,7 @@ static void MX_TIM11_Init(void)
   htim11.Instance = TIM11;
   htim11.Init.Prescaler = 96-1;
   htim11.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim11.Init.Period = 50000;
+  htim11.Init.Period = 65535;
   htim11.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim11.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim11) != HAL_OK)
@@ -689,39 +786,6 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
-  * @brief USART6 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART6_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART6_Init 0 */
-
-  /* USER CODE END USART6_Init 0 */
-
-  /* USER CODE BEGIN USART6_Init 1 */
-
-  /* USER CODE END USART6_Init 1 */
-  huart6.Instance = USART6;
-  huart6.Init.BaudRate = 115200;
-  huart6.Init.WordLength = UART_WORDLENGTH_8B;
-  huart6.Init.StopBits = UART_STOPBITS_1;
-  huart6.Init.Parity = UART_PARITY_NONE;
-  huart6.Init.Mode = UART_MODE_TX_RX;
-  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART6_Init 2 */
-
-  /* USER CODE END USART6_Init 2 */
-
-}
-
-/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -761,12 +825,32 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2|GPIO_PIN_12|GPIO_PIN_5, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB2 PB12 PB5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_12|GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -792,6 +876,8 @@ void UartRxDataUse()
 		{
 			memcpy(CopyData, &RxData[2], 17);
 			otonomi = true;
+			Komut = CopyData[0];
+			hizcarpan = CopyData[1] - 48;
 			// BURADA OTONOM YAZILIM BASLATILACAKTIR. EKLENMELI
 		}
 		else if (RxData[1] == '!' && RxData[RXDATASIZE-2] == '!' )
@@ -832,7 +918,6 @@ void UartRxDataUse()
 			{
 				a[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'B' && RxData[RXDATASIZE-2] == 'B' )
 		{
@@ -840,7 +925,6 @@ void UartRxDataUse()
 			{
 				b[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'C' && RxData[RXDATASIZE-2] == 'C' )
 		{
@@ -848,7 +932,6 @@ void UartRxDataUse()
 			{
 				c[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'D' && RxData[RXDATASIZE-2] == 'D' )
 		{
@@ -856,7 +939,6 @@ void UartRxDataUse()
 			{
 				d[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'E' && RxData[RXDATASIZE-2] == 'E' )
 		{
@@ -864,7 +946,6 @@ void UartRxDataUse()
 			{
 				e[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'F' && RxData[RXDATASIZE-2] == 'F' )
 		{
@@ -872,7 +953,6 @@ void UartRxDataUse()
 			{
 				f[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'G' && RxData[RXDATASIZE-2] == 'G' )
 		{
@@ -880,7 +960,6 @@ void UartRxDataUse()
 			{
 				g[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'H' && RxData[RXDATASIZE-2] == 'H' )
 		{
@@ -888,7 +967,6 @@ void UartRxDataUse()
 			{
 				h[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'I' && RxData[RXDATASIZE-2] == 'I' )
 		{
@@ -896,7 +974,6 @@ void UartRxDataUse()
 			{
 				i[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 		else if (RxData[1] == 'J' && RxData[RXDATASIZE-2] == 'J' )
 		{
@@ -904,25 +981,13 @@ void UartRxDataUse()
 			{
 				j[sayac] = RxData[3 + sayac*2];
 			}
-			hizcarpan = RxData[2] - 48;
 		}
 	}
 }
 
 void UartTxWriter()
 {
-	snprintf(TxData, TXDATASIZE, "@_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_%d_#",
-	         (int)(Accel[0] * 100), (int)(Accel[1] * 100), (int)(Accel[2] * 100),
-			 (int)(Gyro[0] * 100), (int)(Gyro[1] * 100), (int)(Gyro[2] * 100),
-			 (int)(Mag[0] * 100), (int)(Mag[1] * 100), (int)(Mag[2] * 100),
-			 (int)(AccelK[0] * 100), (int)(AccelK[1] * 100), (int)(AccelK[2] * 100),
-			 (int)(GyroK[0] * 100), (int)(GyroK[1] * 100), (int)(GyroK[2] * 100),
-			 (int)(MagK[0] * 100), (int)(MagK[1] * 100), (int)(MagK[2] * 100),
-			 (int)(AccelBase[0] * 100), (int)(AccelBase[1] * 100), (int)(AccelBase[2] * 100),
-			 (int)(GyroBase[0] * 100), (int)(GyroBase[1] * 100), (int)(GyroBase[2] * 100),
-			 (int)(MagBase[0] * 100), (int)(MagBase[1] * 100), (int)(MagBase[2] * 100),
-			 (int)Yaw, (int)Pitch * 100, (int)(Roll * 100), (int)(depth * 100)
-	);
+	snprintf(TxData, TXDATASIZE, "@_%d_%d_%d_%d_%d#",(int)Yaw, (int)Pitch * 100, (int)(Roll * 100), (int)(depth * 100), (int)(voltage * 100));
 }
 
 uint8_t indeks(uint8_t *dizi, char harf)
@@ -949,18 +1014,16 @@ void MotorValueUpload(uint8_t indis, uint8_t PWM)
 	if (indis == 7){__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, PWM);}
 }
 
-uint16_t MotorValueDownload(uint8_t indis)
+int16_t MotorValueDownload(uint8_t indis)
 {
-	if (indis == 0){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);}
-	if (indis == 1){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2);}
-	if (indis == 2){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_3);}
-	if (indis == 3){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_4);}
-	if (indis == 4){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_1);}
-	if (indis == 5){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_2);}
-	if (indis == 6){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_3);}
-	if (indis == 7){ return (uint16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_4);}
-
-	return 10000;
+	if (indis == 0){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);}
+	if (indis == 1){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2);}
+	if (indis == 2){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_3);}
+	if (indis == 3){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_4);}
+	if (indis == 4){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_1);}
+	if (indis == 5){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_2);}
+	if (indis == 6){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_3);}
+	if (indis == 7){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_4);}
 }
 
 int8_t faz_indeks(uint8_t *dizi, uint8_t sira)
@@ -978,6 +1041,11 @@ int8_t faz_indeks(uint8_t *dizi, uint8_t sira)
 		return 1;
 	}
 	return 0;
+}
+
+void Komut_A()
+{
+
 }
 /* USER CODE END 4 */
 
