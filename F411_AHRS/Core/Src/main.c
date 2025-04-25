@@ -62,7 +62,7 @@ void UartRxDataUse();
 void MotorValueUpload(uint8_t indis, uint8_t PWM);
 int16_t MotorValueDownload(uint8_t indis);
 int8_t faz_indeks(uint8_t *dizi, uint8_t sira);
-
+void SendOrientationData(float yaw, float pitch, float roll);
 void Komut_A();
 /* USER CODE END PM */
 
@@ -106,6 +106,13 @@ static void MX_ADC1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+float sample_time_sec_f32 = 1.0f / SAMPLE_FREQ_HZ;
+float sample_time_us_f32 = (1.0f / SAMPLE_FREQ_HZ) * 1000000.0f;
+float accelLowPassFiltered_f32[3], gyroLowPassFiltered_f32[3], gyroNotchFiltered_f32[3];
+float eulerAngles_f32[3];
+
+uint32_t sayac = 0;
+
 #define RXDATASIZE 21
 uint8_t RxData[RXDATASIZE];
 
@@ -115,10 +122,7 @@ char TxData[TXDATASIZE];
 #define CopyDATASIZE 17
 uint8_t CopyData[CopyDATASIZE];
 
-float sample_time_sec_f32 = 1.0f / SAMPLE_FREQ_HZ;
-float sample_time_us_f32 = (1.0f / SAMPLE_FREQ_HZ) * 1000000.0f;
-float accelLowPassFiltered_f32[3], gyroLowPassFiltered_f32[3], gyroNotchFiltered_f32[3];
-float eulerAngles_f32[3];
+char buffer[64];
 
 double yaw_base = 0;
 
@@ -128,8 +132,7 @@ uint32_t baslangic = 0;
 uint32_t bitis = 0;
 uint32_t bitis2 = 0;
 
-double Yaw, Pitch, Roll;
-float depth, voltage;
+float yaw, pitch, roll, depth, voltage;
 float dt;
 float pid_p, pid_i, pid_d;
 
@@ -155,7 +158,7 @@ uint8_t j[8] = {0};
 bool otonomi = false;
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    if (huart->Instance == USART6)
+    if (huart->Instance == USART1)
     {
     	huart_flag = 0;
     	UartRxDataUse();
@@ -209,7 +212,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, SET);
   //Init DWT Clock for proper us time tick
-
+  DWT_Init();
 
   //Init filter with predefined settings
   LPFTwoPole_Init(&LPF_accel_x, LPF_TYPE_BESSEL, LPF_ACCEL_CTOFF_HZ, sample_time_sec_f32);
@@ -235,7 +238,7 @@ int main(void)
 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, RESET);
 	}
 	uint8_t newData_u8;
-	DWT_Init();
+
 	HAL_TIM_Base_Start(&htim11);
   /* USER CODE END 2 */
 
@@ -283,21 +286,20 @@ int main(void)
 			newData_u8 = TRUE; //Set newData to high for activate UART printer
 
 		}//end of timer if
-
-		if(newData_u8)
+/*
+		if(newData_u8 && sayac > 1000)
 		{
 			printf("%f, %f, %f\r\n",
 					quaternion_t.yaw, quaternion_t.pitch, quaternion_t.roll);
 			newData_u8 = FALSE;
 		}
-
-		if (huart_flag)
+*/
+		if(newData_u8 && sayac > 1000)
 		{
-			if (Komut == 'A')
-			{
-				Komut_A();
-			}
-		}
+			newData_u8 = FALSE;
+			SendOrientationData((float)quaternion_t.yaw,(float)quaternion_t.pitch,(float)quaternion_t.roll);
+			sayac = 0;
+		}sayac++;
 
 		bitis = Timer_GetElapsed(&htim11, baslangic);
 
@@ -858,6 +860,17 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void SendOrientationData(float yaw, float pitch, float roll)
+{
+
+    int len = snprintf(buffer, sizeof(buffer), "%.2f %.2f %.2f\n", yaw, pitch, roll);
+
+    if (len > 0 && len < sizeof(buffer)) {
+        CDC_Transmit_FS((uint8_t*)buffer, len);
+    }
+}
+
 uint32_t Timer_GetElapsed(TIM_HandleTypeDef *htim, uint32_t timer_start) {
     uint32_t timer_end = __HAL_TIM_GET_COUNTER(htim);  // Timer pointer'ı ile sayaç değeri alınır
 
@@ -987,7 +1000,7 @@ void UartRxDataUse()
 
 void UartTxWriter()
 {
-	snprintf(TxData, TXDATASIZE, "@_%d_%d_%d_%d_%d#",(int)Yaw, (int)Pitch * 100, (int)(Roll * 100), (int)(depth * 100), (int)(voltage * 100));
+	snprintf(TxData, TXDATASIZE, "@_%d_%d_%d_%d_%d#",(int)(yaw * 100), (int)(pitch * 100), (int)(roll * 100), (int)(depth * 100), (int)(voltage * 100));
 }
 
 uint8_t indeks(uint8_t *dizi, char harf)
