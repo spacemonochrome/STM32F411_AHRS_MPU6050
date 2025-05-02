@@ -1,10 +1,3 @@
-/*
- * mpu6050.c
- *
- *  Created on: Mar 18, 2022
- *      Author: Ibrahim Ozdemir
- *      GitHub: ibrahimcahit   
- */
 
 //Includes
 #include <stdio.h>

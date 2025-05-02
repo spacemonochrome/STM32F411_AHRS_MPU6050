@@ -1,10 +1,3 @@
-/*
- * FusionAHRS.c
- *
- *  Created on: Mar 20, 2022
- *      Author: Ibrahim Ozdemir
- *      GitHub: ibrahimcahit
- */
 
 #include "FusionAHRS.h"
 

@@ -1,10 +1,3 @@
-/*
- * mpu6050.h
- *
- *  Created on: Mar 18, 2022
- *      Author: Ibrahim Ozdemir
- *      GitHub: ibrahimcahit   
- */
 
 #ifndef INC_6050_H_
 #define INC_6050_H_

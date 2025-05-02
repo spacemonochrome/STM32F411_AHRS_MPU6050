@@ -56,14 +56,7 @@ LPFTwoPole_t LPF_accel_x, LPF_accel_y, LPF_accel_z, LPF_gyro_x, LPF_gyro_y, LPF_
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 uint32_t Timer_GetElapsed(TIM_HandleTypeDef *htim, uint32_t timer_start);
-uint8_t indeks(uint8_t *dizi, char harf);
-void UartTxWriter();
-void UartRxDataUse();
-void MotorValueUpload(uint8_t indis, uint8_t PWM);
-int16_t MotorValueDownload(uint8_t indis);
-int8_t faz_indeks(uint8_t *dizi, uint8_t sira);
 void SendOrientationData(float yaw, float pitch, float roll);
-void Komut_A();
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -113,59 +106,12 @@ float eulerAngles_f32[3];
 
 uint32_t sayac = 0;
 
-#define RXDATASIZE 21
-uint8_t RxData[RXDATASIZE];
-
-#define TXDATASIZE 220
-char TxData[TXDATASIZE];
-
-#define CopyDATASIZE 17
-uint8_t CopyData[CopyDATASIZE];
-
 char buffer[64];
-
-double yaw_base = 0;
-
 uint64_t timer_u64 = 0;
 uint64_t lastTime_u64 = 0;
 uint32_t baslangic = 0;
 uint32_t bitis = 0;
 uint32_t bitis2 = 0;
-
-float yaw, pitch, roll, depth, voltage;
-float dt;
-float pid_p, pid_i, pid_d;
-
-int16_t MotorPWM[8] = {1500};
-int16_t MotorValue[8] = {0};
-
-uint8_t onsol8,onsag8,arkasol8,arkasag8,onsolbatirma8,onsagbatirma8,arkasolbatirma8,arkasagbatirma8; // 8 motor
-uint8_t onsol6,onsag6,arkasol6,arkasag6,ortabatirmasol6,ortabatirmasag6; // 6 motor
-uint8_t hizcarpan;
-uint8_t huart_flag = 1;
-uint8_t Komut = 0;
-uint8_t konum[8] = {0};
-uint8_t a[8] = {0};
-uint8_t b[8] = {0};
-uint8_t c[8] = {0};
-uint8_t d[8] = {0};
-uint8_t e[8] = {0};
-uint8_t f[8] = {0};
-uint8_t g[8] = {0};
-uint8_t h[8] = {0};
-uint8_t i[8] = {0};
-uint8_t j[8] = {0};
-bool otonomi = false;
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    if (huart->Instance == USART1)
-    {
-    	huart_flag = 0;
-    	UartRxDataUse();
-    	HAL_UART_Receive_DMA(&huart1, RxData, RXDATASIZE);
-    	huart_flag = 1;
-    }
-}
 
 /* USER CODE END 0 */
 
@@ -881,185 +827,6 @@ uint32_t Timer_GetElapsed(TIM_HandleTypeDef *htim, uint32_t timer_start) {
     }
 }
 
-void UartRxDataUse()
-{
-	if (RxData[0] == '@' && RxData[RXDATASIZE-1] == '#' )
-	{
-		if (RxData[1] == 'K' && RxData[RXDATASIZE-2] == 'S' )
-		{
-			memcpy(CopyData, &RxData[2], 17);
-			otonomi = true;
-			Komut = CopyData[0];
-			hizcarpan = CopyData[1] - 48;
-			// BURADA OTONOM YAZILIM BASLATILACAKTIR. EKLENMELI
-		}
-		else if (RxData[1] == '!' && RxData[RXDATASIZE-2] == '!' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				konum[sayac] = RxData[3 + sayac*2];
-			}
-			if (konum[6] == '0' || konum[7] == '0')
-			{
-				onsol6 = indeks(konum, 'a');
-				onsag6 = indeks(konum, 'b');
-				ortabatirmasol6 = indeks(konum, 'c');
-				ortabatirmasag6 = indeks(konum, 'd');
-				arkasol6 = indeks(konum, 'e');
-				arkasag6 = indeks(konum, 'f');
-			}
-			else
-			{
-				onsolbatirma8 = indeks(konum, 'a');
-				onsagbatirma8 = indeks(konum, 'b');
-				onsol8 = indeks(konum, 'c');
-				onsag8 = indeks(konum, 'd');
-				arkasol8 = indeks(konum, 'e');
-				arkasag8 = indeks(konum, 'f');
-				arkasolbatirma8 = indeks(konum, 'g');
-				arkasagbatirma8 = indeks(konum, 'h');
-			}
-		}
-		else if (RxData[1] == '*' && RxData[RXDATASIZE-2] == '*' )
-		{
-			memcpy(CopyData, &RxData[2], 17);
-			sscanf((char*)CopyData, "%f %f %f", &pid_p, &pid_i, &pid_d);
-		}
-		else if (RxData[1] == 'A' && RxData[RXDATASIZE-2] == 'A' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				a[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'B' && RxData[RXDATASIZE-2] == 'B' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				b[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'C' && RxData[RXDATASIZE-2] == 'C' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				c[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'D' && RxData[RXDATASIZE-2] == 'D' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				d[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'E' && RxData[RXDATASIZE-2] == 'E' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				e[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'F' && RxData[RXDATASIZE-2] == 'F' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				f[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'G' && RxData[RXDATASIZE-2] == 'G' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				g[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'H' && RxData[RXDATASIZE-2] == 'H' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				h[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'I' && RxData[RXDATASIZE-2] == 'I' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				i[sayac] = RxData[3 + sayac*2];
-			}
-		}
-		else if (RxData[1] == 'J' && RxData[RXDATASIZE-2] == 'J' )
-		{
-			for (uint8_t sayac = 0; sayac < 8; sayac++)
-			{
-				j[sayac] = RxData[3 + sayac*2];
-			}
-		}
-	}
-}
-
-void UartTxWriter()
-{
-	snprintf(TxData, TXDATASIZE, "@_%d_%d_%d_%d_%d#",(int)(yaw * 100), (int)(pitch * 100), (int)(roll * 100), (int)(depth * 100), (int)(voltage * 100));
-}
-
-uint8_t indeks(uint8_t *dizi, char harf)
-{
-	for (uint8_t sayac = 0; sayac < sizeof(dizi); sayac++)
-	{
-		if (dizi[sayac] == harf)
-		{
-			return sayac;
-		}
-	}
-	return 10;
-}
-
-void MotorValueUpload(uint8_t indis, uint8_t PWM)
-{
-	if (indis == 0){__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, PWM);}
-	if (indis == 1){__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, PWM);}
-	if (indis == 2){__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, PWM);}
-	if (indis == 3){__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, PWM);}
-	if (indis == 4){__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWM);}
-	if (indis == 5){__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWM);}
-	if (indis == 6){__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, PWM);}
-	if (indis == 7){__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, PWM);}
-}
-
-int16_t MotorValueDownload(uint8_t indis)
-{
-	if (indis == 0){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);}
-	if (indis == 1){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_2);}
-	if (indis == 2){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_3);}
-	if (indis == 3){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_4);}
-	if (indis == 4){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_1);}
-	if (indis == 5){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_2);}
-	if (indis == 6){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_3);}
-	if (indis == 7){ return (int16_t)__HAL_TIM_GET_COMPARE(&htim3, TIM_CHANNEL_4);}
-}
-
-int8_t faz_indeks(uint8_t *dizi, uint8_t sira)
-{
-	if (dizi[sira] == '0')
-	{
-		return 0;
-	}
-	else if (dizi[sira] == '1')
-	{
-		return -1;
-	}
-	else if (dizi[sira] == '2')
-	{
-		return 1;
-	}
-	return 0;
-}
-
-void Komut_A()
-{
-
-}
 /* USER CODE END 4 */
 
 /**

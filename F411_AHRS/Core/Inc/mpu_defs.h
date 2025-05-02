@@ -1,10 +1,3 @@
-/*
- * mpu9255_defs.h
- *
- *  Created on: Dec 26, 2021
- *      Author: Ibrahim Ozdemir
- *      GitHub: ibrahimcahit
- */
 
 //Magnetometer Registers
 #define AK8963_ADDRESS   0x0C<<1
